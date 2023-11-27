@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import pandas as pd
 from determination_of_max_velocity_point import generate_max_velocity_point_graph
 
 # Function to calculate omega_n from settling time (ts) and zeta
@@ -202,31 +203,37 @@ if result.success:
 else:
     print("Optimization did not converge.")
 
-# Visualize the optimization process
+# Visualize the optimization process, showing only the top 100 iterations
+top_iterations = 100
 iteration_numbers = list(range(1, len(iteration_data) + 1))
+
+# Trim data to the top iterations
+trimmed_iteration_data = iteration_data[:top_iterations]
 
 # Plot all variables in one subplot with manual layout adjustments
 plt.figure(figsize=(15, 12))
 
 # Plot supply pressures over iterations
 plt.subplot(3, 1, 1)
-plt.plot(iteration_numbers, [iteration['ps'] for iteration in iteration_data], marker='o')
+plt.plot(iteration_numbers[:top_iterations], [iteration['ps'] for iteration in trimmed_iteration_data], marker='o', linestyle='-', color='b', alpha=0.7)
 plt.xlabel('Iteration')
 plt.ylabel('Supply Pressure (ps)')
 plt.title('Supply Pressure Evolution')
 
-# Plot actuator area over iterations
+# Plot actuator area over iterations with logarithmic scale
 plt.subplot(3, 1, 2)
-plt.plot(iteration_numbers, [iteration['Aa'] for iteration in iteration_data], marker='o')
+plt.plot(iteration_numbers[:top_iterations], [iteration['Aa'] for iteration in trimmed_iteration_data], marker='o', linestyle='-', color='g', alpha=0.7)
 plt.xlabel('Iteration')
 plt.ylabel('Actuator Area (Aa)')
+plt.yscale('log')  # Set y-axis to logarithmic scale
 plt.title('Actuator Area Evolution')
 
-# Plot C over iterations
+# Plot C over iterations with logarithmic scale
 plt.subplot(3, 1, 3)
-plt.plot(iteration_numbers, [iteration['C'] for iteration in iteration_data], marker='o')
+plt.plot(iteration_numbers[:top_iterations], [iteration['C'] for iteration in trimmed_iteration_data], marker='o', linestyle='-', color='r', alpha=0.7)
 plt.xlabel('Iteration')
 plt.ylabel('C')
+plt.yscale('log')  # Set y-axis to logarithmic scale
 plt.title('C Evolution')
 
 # Adjust the layout
@@ -234,3 +241,157 @@ plt.subplots_adjust(hspace=1)  # Adjust the vertical spacing between subplots
 
 # Show the figure
 plt.show()
+
+# Define the number of steps for each range
+num_steps = 10
+
+# Define the ranges
+ps_values = np.linspace(1.1e5, 20e5, num_steps)
+Fl_values = np.linspace(1e3, 50e3, num_steps)
+settling_times = np.linspace(0.25, 5, num_steps)
+
+# Initialize arrays to store results
+C_results = np.zeros((num_steps, num_steps, num_steps))
+Aa_results = np.zeros((num_steps, num_steps, num_steps))
+
+pa_ps_min = calculate_pa_ps_min(b_value, ra_value)
+pa_ps_values = np.linspace(pa_ps_min, 1, 100)
+
+# Nested loops to vary each parameter
+for i, ps in enumerate(ps_values):
+    for j, Fl in enumerate(Fl_values):
+        for k, st in enumerate(settling_times):
+            omega_n = calculate_omega_n(zeta_value, st)
+            vmax = calculate_max_velocity(zeta_value, x_max, omega_n)
+            vess_over_C_values = [calculate_vess_over_C(pa_ps, ps, p0_value, b_value, ra_value, mu_value, Fl) for pa_ps in pa_ps_values]
+            pa_ps_vmax_index = np.argmax(vess_over_C_values)
+            pa_ps_vmax = pa_ps_values[pa_ps_vmax_index]
+            pb_p0_value = calculate_p0_over_pB(pa_ps_vmax, b_value, ra_value)
+            Lr_opt_value = calculate_Lr(pb_p0_value, ps, p0_value, ra_value, pa_ps_vmax)
+            Aa_result = calculate_Aa(Fl, ps, Lr_opt_value, mu_value)
+            pa_ps_Av = calculate_pa_ps_Av(pa_ps_vmax)
+            C_value = calculate_C(pa_ps_Av, Aa_result, vmax, p0_value, b_value)
+            C_results[i, j, k] = C_value
+            Aa_results[i, j, k] = Aa_result
+
+# Plotting function for subplots
+plt.figure(figsize=(12, 18))
+
+# Plot for Aa_result and C_value as a function of ps_value
+plt.subplot(3, 2, 1)
+plt.semilogy(ps_values, Aa_results[:, 0, 0], label='Aa vs ps')
+plt.xlabel('Supply Pressure (ps)')
+plt.ylabel('Aa Result')
+plt.title('Aa vs Supply Pressure')
+plt.grid(True)
+
+plt.subplot(3, 2, 2)
+plt.semilogy(ps_values, C_results[:, 0, 0], label='C vs ps')
+plt.xlabel('Supply Pressure (ps)')
+plt.ylabel('C Value')
+plt.title('C vs Supply Pressure')
+plt.grid(True)
+
+# Plot for Aa_result and C_value as a function of Fl_value
+plt.subplot(3, 2, 3)
+plt.semilogy(Fl_values, Aa_results[0, :, 0], label='Aa vs Fl')
+plt.xlabel('Load Force (Fl)')
+plt.ylabel('Aa Result')
+plt.title('Aa vs Load Force')
+plt.grid(True)
+
+plt.subplot(3, 2, 4)
+plt.semilogy(Fl_values, C_results[0, :, 0], label='C vs Fl')
+plt.xlabel('Load Force (Fl)')
+plt.ylabel('C Value')
+plt.title('C vs Load Force')
+plt.grid(True)
+
+# Plot for Aa_result and C_value as a function of settling_time
+plt.subplot(3, 2, 5)
+plt.semilogy(settling_times, Aa_results[0, 0, :], label='Aa vs ts')
+plt.xlabel('Settling Time (ts)')
+plt.ylabel('Aa Result')
+plt.title('Aa vs Settling Time')
+plt.grid(True)
+
+plt.subplot(3, 2, 6)
+plt.semilogy(settling_times, C_results[0, 0, :], label='C vs ts')
+plt.xlabel('Settling Time (ts)')
+plt.ylabel('C Value')
+plt.title('C vs Settling Time')
+plt.grid(True)
+
+# Adjust the layout
+plt.subplots_adjust(top=0.9, bottom=0.085, hspace=0.5)
+
+plt.show()
+
+# Function to compute outputs
+def compute_outputs(ps, ts, Fl):
+    # Calculate omega_n
+    omega_n = calculate_omega_n(zeta_value, ts)
+
+    # Calculate pa/ps_vmax
+    pa_ps_min = calculate_pa_ps_min(b_value, ra_value)
+    pa_ps_values = np.linspace(pa_ps_min, 1, 100)
+    vess_over_C_values = [calculate_vess_over_C(pa_ps, ps, p0_value, b_value, ra_value, mu_value, Fl) for pa_ps in pa_ps_values]
+    pa_ps_vmax_index = np.argmax(vess_over_C_values)
+    pa_ps_vmax = pa_ps_values[pa_ps_vmax_index]
+
+    # Calculate vmax, pb_p0, Lr_opt, Aa, and C
+    vmax = calculate_max_velocity(zeta_value, x_max, omega_n)
+    pb_p0 = calculate_p0_over_pB(pa_ps_vmax, b_value, ra_value)
+    Lr_opt = calculate_Lr(pb_p0, ps, p0_value, ra_value, pa_ps_vmax)
+    Aa = calculate_Aa(Fl, ps, Lr_opt, mu_value)
+    C = calculate_C(pa_ps_Av, Aa, vmax, p0_value, b_value)
+
+    return Aa, C
+
+# Define the sets of values and the perturbation percentage
+ts_values = [1.25, 2.5, 5]
+Fl_values = [13e3, 25e3, 40e3]
+ps_values = [5e5, 8e5, 10e5]
+delta_percentage = 0.25
+
+# Initialize a list to store the results
+results = []
+
+# Your function definitions: compute_outputs, etc.
+
+# Iterate through each set of values
+for ts in ts_values:
+    for Fl in Fl_values:
+        for ps in ps_values:
+            # Baseline calculations
+            baseline_Aa, baseline_C = compute_outputs(ps, ts, Fl)
+
+            # Apply perturbations and calculate sensitivities
+            for param, value in [('ts', ts), ('Fl', Fl), ('ps', ps)]:
+                delta = value * delta_percentage
+                perturbed_Aa, perturbed_C = compute_outputs(
+                    ps + (delta if param == 'ps' else 0),
+                    ts + (delta if param == 'ts' else 0),
+                    Fl + (delta if param == 'Fl' else 0)
+                )
+
+                sensitivity_Aa = (perturbed_Aa - baseline_Aa) / delta
+                sensitivity_C = (perturbed_C - baseline_C) / delta
+
+                # Store the results with adjusted values and units
+                results.append({
+                    'Tested Variable': param,
+                    'Delta Value': delta,
+                    'ps Value [bar]': ps / 1e5,  # Convert Pascals to bar
+                    'ts Value [s]': ts,  # Seconds
+                    'Fl Value [kN]': Fl / 1e3,  # Convert Newtons to kiloNewtons
+                    'Sensitivity to C': sensitivity_C,
+                    'Sensitivity to A': sensitivity_Aa
+                })
+
+# Convert the results list to a DataFrame
+sensitivity_df = pd.DataFrame(results)
+
+print(sensitivity_df)
+
+sensitivity_df.to_csv('data/sensitivity_analysis_results.csv', index=False)
